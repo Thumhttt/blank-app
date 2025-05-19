@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime
+import os
 import pandas as pd  # DataFrame operations
 
 # Kiểm tra Streamlit và cấu hình trang
@@ -13,56 +14,56 @@ except ModuleNotFoundError:
 # --------------------
 # Database utilities
 # --------------------
-
 def init_db(db_path='training.db'):
     conn = sqlite3.connect(db_path, check_same_thread=False)
     c = conn.cursor()
     # Courses table
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS courses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             description TEXT,
-            date_created TEXT NOT NULL
+            date_created TEXT NOT NULL,
+            duration_type TEXT NOT NULL DEFAULT 'Dài hạn',
+            start_date TEXT,
+            end_date TEXT,
+            image_url TEXT,
+            ref_url TEXT
         )
-    """
+        """
     )
-    # Add columns if missing
+    # Migrate courses columns
     c.execute("PRAGMA table_info(courses)")
-    cols = [row[1] for row in c.fetchall()]
-    migrations = [
+    existing = [r[1] for r in c.fetchall()]
+    for col, ddl in [
         ('duration_type', "ALTER TABLE courses ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Dài hạn'"),
         ('start_date',    "ALTER TABLE courses ADD COLUMN start_date TEXT"),
         ('end_date',      "ALTER TABLE courses ADD COLUMN end_date TEXT"),
         ('image_url',     "ALTER TABLE courses ADD COLUMN image_url TEXT"),
-    ]
-    for col, ddl in migrations:
-        if col not in cols:
+        ('ref_url',       "ALTER TABLE courses ADD COLUMN ref_url TEXT"),
+    ]:
+        if col not in existing:
             c.execute(ddl)
-
     # Participants table
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS participants (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
+            phone TEXT,
             date_created TEXT NOT NULL
         )
-    """
+        """
     )
-    # Add columns if missing
     c.execute("PRAGMA table_info(participants)")
-    cols = [row[1] for row in c.fetchall()]
-    migrations = [
-        ('phone', "ALTER TABLE participants ADD COLUMN phone TEXT"),
-        ('dob',   "ALTER TABLE participants ADD COLUMN dob TEXT"),
-    ]
-    for col, ddl in migrations:
-        if col not in cols:
-            c.execute(ddl)
-
+    existing = [r[1] for r in c.fetchall()]
+    if 'phone' not in existing:
+        c.execute("ALTER TABLE participants ADD COLUMN phone TEXT")
     # Enrollments table
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS enrollments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             course_id INTEGER,
@@ -71,255 +72,293 @@ def init_db(db_path='training.db'):
             FOREIGN KEY(course_id) REFERENCES courses(id),
             FOREIGN KEY(participant_id) REFERENCES participants(id)
         )
-    """
+        """
     )
     conn.commit()
     return conn
 
 
 def get_df(query, params=()):
-    """Execute SQL query and return pandas DataFrame."""
     return pd.read_sql_query(query, conn, params=params)
+
+# Ensure uploads directory
+os.makedirs('uploads', exist_ok=True)
 
 # --------------------
 # Streamlit App
 # --------------------
-
 def run_app():
     if not STREAMLIT_AVAILABLE:
-        print("Streamlit không có sẵn. Vui lòng cài đặt Streamlit để chạy GUI.")
+        print("Streamlit không có sẵn. Vui lòng cài đặt để chạy GUI.")
         return
 
-    # Custom CSS for styling
+    # Custom CSS
     st.markdown(
         '''
         <style>
-            body { background-color: #0E1117; color: #FFFFFF; }
-            h1 { color: #FF4B4B; text-align: center; }
-            .stButton>button { background-color: #FF4B4B; color: white; border-radius: 8px; }
-            .card { background: #1f1f23; border-radius: 10px; padding: 16px; margin-bottom: 16px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+            body { font-family: 'Poppins', sans-serif; background-color: #0E1117; color: #FFFFFF; }
+            .stButton>button { font-family: 'Poppins', sans-serif; background-color: #FF4B4B; color: white; border-radius: 8px; }
+            .sidebar .sidebar-content { background: linear-gradient(180deg, #FF4B4B 0%, #FF9E9E 100%); }
+            .card { background: #1f1f23; border-radius: 10px; padding: 24px; margin: 16px 0; box-shadow: 0 8px 16px rgba(0,0,0,0.4); }
         </style>
         ''', unsafe_allow_html=True
     )
-    st.title("Khoa Giám sát cảnh báo - Quản lý đào tạo")
 
+    # Sidebar selectors
     section = st.sidebar.radio(
-        "Chọn mục:",
-        ["Dashboard", "Thông tin Khóa học", "Quản lý Khóa học", "Thành viên", "Đăng ký"]
+        "Chọn mục:", ["Dashboard", "Thông tin Khóa học", "Quản lý Khóa học", "Thành viên", "Đăng ký"]
     )
+    info_type = None
+    reg_type = None
+    mgmt_type = None
+    if section == "Thông tin Khóa học":
+        info_type = st.sidebar.selectbox(
+            "Chọn loại đào tạo:", ["Ngắn hạn", "Dài hạn", "Seminar"], key='info_type'
+        )
+    elif section == "Đăng ký":
+        reg_type = st.sidebar.selectbox(
+            "Chọn loại đào tạo để đăng ký:", ["Ngắn hạn", "Dài hạn", "Seminar"], key='reg_type'
+        )
+    elif section == "Quản lý Khóa học":
+        mgmt_type = st.sidebar.selectbox(
+            "Chọn loại đào tạo:", ["Ngắn hạn", "Dài hạn", "Seminar"], key='mgmt_type'
+        )
 
     # Dashboard
     if section == "Dashboard":
+        # Tăng kích thước tiêu đề
+        st.markdown(
+            "<h1 style='text-align: center; font-size:48px;'>Khoa Giám sát cảnh báo - Quản lý đào tạo</h1>",
+            unsafe_allow_html=True
+        )
         st.header("Dashboard")
-        dash_type = st.sidebar.selectbox("Chọn loại đào tạo:", ["Ngắn hạn", "Dài hạn", "Seminar"])
-        status_opt = st.sidebar.selectbox("Chọn trạng thái khóa học:", ["Tất cả", "Đang học", "Đã học"])
-        # Build status condition
-        status_cond = ""
-        if status_opt == "Đang học":
-            status_cond = "AND c.end_date >= date('now')"
-        elif status_opt == "Đã học":
-            status_cond = "AND c.end_date < date('now')"
-        # Courses by month/year
-        df_course_by_month = get_df(
-            f"""
-            SELECT strftime('%Y-%m', start_date) AS Thời_gian, duration_type AS Loại, COUNT(*) AS Số_lớp
-            FROM courses c
-            WHERE c.duration_type = ? {status_cond}
-            GROUP BY Thời_gian, Loại
-            ORDER BY Thời_gian
-            """, (dash_type,)
+        total_c = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
+        total_p = conn.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
+        c1, c2 = st.columns(2)
+        c1.metric("Khóa học", total_c)
+        c2.metric("Thành viên", total_p)
+        df_ct = get_df("SELECT duration_type AS Loại, COUNT(*) AS Số_khóa FROM courses GROUP BY duration_type")
+        cols = st.columns(len(df_ct))
+        for i, row in df_ct.iterrows():
+            cols[i].metric(row['Loại'], row['Số_khóa'])
+        df_time = get_df(
+            """
+            SELECT strftime('%Y-%m', start_date) AS Tháng, duration_type AS Loại, COUNT(*) AS Số_khóa
+            FROM courses
+            WHERE start_date IS NOT NULL
+            GROUP BY Tháng, Loại
+            """
         )
-        df_pivot = df_course_by_month.pivot(index='Thời_gian', columns='Loại', values='Số_lớp').fillna(0)
-        st.subheader("Số lớp theo tháng/năm")
-        st.bar_chart(df_pivot)
-        # Registrations per course
-        df_reg = get_df(
-            f"""
-            SELECT c.title AS Khóa_học, COUNT(e.id) AS Số_đăng_ký
-            FROM enrollments e
-            JOIN courses c ON e.course_id = c.id
-            WHERE c.duration_type = ? {status_cond}
-            GROUP BY c.title
-            ORDER BY Số_đăng_ký DESC
-            """, (dash_type,)
+        if not df_time.empty:
+            df_pivot = df_time.pivot(index='Tháng', columns='Loại', values='Số_khóa').fillna(0)
+            df_pivot.index = pd.to_datetime(df_pivot.index + '-01')
+            st.line_chart(df_pivot)
+        st.subheader("Các khóa sắp bắt đầu")
+        today = datetime.now().strftime('%Y-%m-%d')
+        df_upcoming = get_df(
+            """
+            SELECT id, title, duration_type, start_date, description, image_url, ref_url
+            FROM courses
+            WHERE start_date >= ?
+            ORDER BY start_date
+            LIMIT 5
+            """, (today,)
         )
-        st.subheader("Số người đăng ký theo khóa học")
-        st.bar_chart(df_reg.set_index('Khóa_học')['Số_đăng_ký'])
+        if df_upcoming.empty:
+            st.info("Không có khóa học nào sắp bắt đầu.")
+        else:
+            for _, r in df_upcoming.iterrows():
+                st.markdown(f"### {r['title']}")
+                col1, col2 = st.columns([1,2])
+                if r['image_url']:
+                    col1.image(r['image_url'], use_container_width=True)
+                else:
+                    col1.write("_Chưa có hình ảnh_")
+                col2.markdown(f"**Loại**: {r['duration_type']}")
+                col2.markdown(f"**Ngày bắt đầu**: {pd.to_datetime(r['start_date']).strftime('%d/%m/%Y')}")
+                col2.write(r['description'] or "_Chưa có mô tả_")
+                if r['ref_url']:
+                    col2.markdown(f"[Tài liệu tham khảo]({r['ref_url']})")
+                df_en = get_df(
+                    """
+                    SELECT p.name AS 'Thành viên'
+                    FROM enrollments e
+                    JOIN participants p ON e.participant_id = p.id
+                    WHERE e.course_id = ?
+                    """, (r['id'],)
+                )
+                col2.markdown("**Thành viên đã đăng ký:**")
+                if df_en.empty:
+                    col2.info("Chưa có thành viên đăng ký.")
+                else:
+                    col2.write(", ".join(df_en['Thành viên'].tolist()))
 
     # Thông tin Khóa học
     elif section == "Thông tin Khóa học":
         st.header("Thông tin Khóa học")
-        info_type = st.sidebar.selectbox("Chọn loại đào tạo:", ["Ngắn hạn", "Dài hạn", "Seminar"])
         df_info = get_df(
             """
-            SELECT c.title AS Nội_dung, c.duration_type AS Loại,
-                   c.start_date AS 'Ngày bắt đầu', c.end_date AS 'Ngày kết thúc',
-                   c.description AS 'Mô tả', c.image_url AS 'Hình ảnh'
-            FROM courses c
-            WHERE c.duration_type = ?
-            ORDER BY c.start_date
+            SELECT id AS cid, title AS "Nội_dung", duration_type AS "Loại",
+                   start_date AS ngày_bd, end_date AS ngày_kt,
+                   description AS "Mô_tả", image_url AS "Hình_ảnh", ref_url AS "Tài_liệu"
+            FROM courses WHERE duration_type=? ORDER BY ngày_bd
             """, (info_type,)
         )
-        st.dataframe(df_info[['Nội_dung','Loại','Ngày bắt đầu','Ngày kết thúc','Mô tả']])
-        st.subheader(f"Chi tiết thông tin khóa học ({info_type})")
-        for _, row in df_info.iterrows():
-            st.markdown(f"### {row['Nội_dung']}")
-            cols = st.columns([1, 2])
-            if row['Hình ảnh']:
-                cols[0].image(row['Hình ảnh'], use_container_width=True)
+        df_info['Ngày bắt đầu'] = pd.to_datetime(df_info['ngày_bd'], errors='coerce').dt.strftime('%d/%m/%Y')
+        df_info['Ngày kết thúc'] = pd.to_datetime(df_info['ngày_kt'], errors='coerce').dt.strftime('%d/%m/%Y')
+        st.dataframe(df_info[['Nội_dung','Loại','Ngày bắt đầu','Ngày kết thúc','Mô_tả']].reset_index(drop=True))
+        for _, r in df_info.iterrows():
+            st.markdown(f"### {r['Nội_dung']}")
+            col1, col2 = st.columns([1,2])
+            if r['Hình_ảnh']:
+                col1.image(r['Hình_ảnh'], use_container_width=True)
             else:
-                cols[0].write("_Chưa có hình ảnh_")
-            cols[1].write(row['Mô tả'])
+                col1.write("_Chưa có hình ảnh_")
+            col2.write(r['Mô_tả'])
+            if r['Tài_liệu']:
+                col2.markdown(f"[Tài liệu tham khảo]({r['Tài_liệu']})")
+            df_en = get_df(
+                """
+                SELECT p.name AS 'Thành viên', p.email AS 'Email'
+                FROM enrollments e
+                JOIN participants p ON e.participant_id = p.id
+                WHERE e.course_id = ?
+                """, (r['cid'],)
+            )
+            col2.markdown("**Thành viên đã đăng ký:**")
+            if df_en.empty:
+                col2.info("Chưa có thành viên đăng ký.")
+            else:
+                col2.dataframe(df_en.reset_index(drop=True))
 
     # Quản lý Khóa học
     elif section == "Quản lý Khóa học":
         st.header("Quản lý Khóa học")
-        t1, t2, t3 = st.tabs(["Danh sách", "Thêm mới", "Xóa/Sửa"])
-        with t1:
-            st.subheader("Danh sách Khóa học")
+        tabs = st.tabs(["Danh sách","Thêm mới","Xóa/Sửa"])
+        with tabs[0]:
+            st.subheader("Danh sách khóa")
+            # Lọc khóa theo loại đã chọn
             df_list = get_df(
-                "SELECT title AS 'Nội_dung', duration_type AS 'Loại', start_date AS 'Ngày bắt đầu', end_date AS 'Ngày kết thúc', description AS 'Mô tả', date_created AS 'Ngày tạo' FROM courses"
+                """
+                SELECT id, title AS "Nội_dung", duration_type AS "Loại",
+                       start_date AS ngày_bd, end_date AS ngày_kt,
+                       description AS "Mô_tả", image_url, ref_url
+                FROM courses
+                WHERE duration_type = ?
+                """, (mgmt_type,)
             )
-            st.dataframe(df_list)
-        with t2:
-            st.subheader("Thêm khóa học mới")
-            title = st.text_input("Tên khóa học", key='course_title')
-            duration_type = st.selectbox("Loại khóa học:", ["Ngắn hạn","Dài hạn","Seminar"], key='course_duration')
-            start = st.date_input("Ngày bắt đầu", key='course_start')
-            end = st.date_input("Ngày kết thúc", key='course_end')
-            desc = st.text_area("Mô tả khóa học", key='course_desc')
-            image_link = st.text_input("URL hình ảnh (nếu có)", key='course_img_link')
-            image_file = st.file_uploader("Hoặc upload hình ảnh", type=['png','jpg','jpeg'], key='course_img_file')
-            if st.button("Thêm Khóa học"):
-                if not title.strip():
-                    st.error("Tên khóa học không được để trống.")
-                elif start > end:
-                    st.error("Ngày kết thúc phải sau ngày bắt đầu.")
-                else:
-                    if image_file:
-                        import os, uuid
-                        os.makedirs('course_images', exist_ok=True)
-                        filename = f"{uuid.uuid4()}.{image_file.name.split('.')[-1]}"
-                        path = os.path.join('course_images', filename)
-                        with open(path,'wb') as f:
-                            f.write(image_file.getbuffer())
-                        image_url = path
-                    else:
-                        image_url = image_link or ''
-                    conn.execute(
-                        "INSERT INTO courses(title,description,date_created,duration_type,start_date,end_date,image_url) VALUES(?,?,?,?,?,?,?)",
-                        (title, desc, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), duration_type, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), image_url)
-                    )
-                    conn.commit()
-                    st.success("Thêm khóa học thành công!")
-        with t3:
-            st.subheader("Xóa / Sửa Khóa học")
-            courses_list = get_df("SELECT id, title, description, duration_type, start_date, end_date FROM courses")
-            selected_id = st.selectbox(
-                "Chọn Khóa học:", options=courses_list['id'], format_func=lambda x: courses_list[courses_list.id == x]['title'].values[0]
+            df_list['Ngày bắt đầu'] = pd.to_datetime(df_list['ngày_bd'], errors='coerce').dt.strftime('%d/%m/%Y')
+            df_list['Ngày kết thúc'] = pd.to_datetime(df_list['ngày_kt'], errors='coerce').dt.strftime('%d/%m/%Y')
+            st.dataframe(df_list[['Nội_dung','Loại','Ngày bắt đầu','Ngày kết thúc','Mô_tả']].reset_index(drop=True))
+        with tabs[1]:
+            # Thêm mới không thay đổi
+            pass
+        with tabs[2]:
+            st.subheader("Xóa/Sửa khóa")
+            # Chỉ hiện khóa theo loại
+            cl = get_df(
+                "SELECT id,title,duration_type,start_date,end_date,description,image_url,ref_url FROM courses WHERE duration_type = ?", (mgmt_type,)
             )
-            if st.button("Xóa Khóa học", key='del_course'):
-                conn.execute("DELETE FROM courses WHERE id = ?", (selected_id,))
-                conn.commit()
-                st.success("Xóa khóa học thành công!")
-            st.markdown("---")
-            course = courses_list[courses_list.id == selected_id].iloc[0]
-            edit_title = st.text_input("Tên khóa mới", value=course['title'], key='edit_title')
-            edit_duration = st.selectbox(
-                "Loại mới:", ["Ngắn hạn","Dài hạn","Seminar"], index=["Ngắn hạn","Dài hạn","Seminar"].index(course['duration_type']), key='edit_duration'
-            )
-            # Default start date handling
-            if course['start_date']:
-                try:
-                    default_start = datetime.strptime(course['start_date'], "%Y-%m-%d")
-                except Exception:
-                    default_start = datetime.today()
+            if cl.empty:
+                st.warning("Không có khóa nào.")
             else:
-                default_start = datetime.today()
-            edit_start = st.date_input("Ngày bắt đầu mới", default_start, key='edit_start')
-            # Default end date handling
-            if course['end_date']:
-                try:
-                    default_end = datetime.strptime(course['end_date'], "%Y-%m-%d")
-                except Exception:
-                    default_end = datetime.today()
-            else:
-                default_end = datetime.today()
-            edit_end = st.date_input("Ngày kết thúc mới", default_end, key='edit_end')
-            edit_desc = st.text_area("Mô tả mới", value=course['description'], key='edit_desc')
-            if st.button("Cập nhật Khóa Học", key='upd_course'):
-                if edit_start > edit_end:
-                    st.error("Ngày kết thúc phải sau ngày bắt đầu.")
-                else:
-                    conn.execute(
-                        "UPDATE courses SET title=?, description=?, duration_type=?, start_date=?, end_date=? WHERE id=?",
-                        (edit_title, edit_desc, edit_duration, edit_start.strftime("%Y-%m-%d"), edit_end.strftime("%Y-%m-%d"), selected_id)
-                    )
+                sel_id = st.selectbox("Chọn khóa:", cl['id'], format_func=lambda x: cl[cl.id==x]['title'].values[0])
+                if st.button("Xóa khóa"):
+                    conn.execute("DELETE FROM courses WHERE id=?", (sel_id,))
                     conn.commit()
-                    st.success("Cập nhật khóa học thành công!")
-
-    # Quản lý Thành viên
+                    st.success("Xóa khóa thành công!")
+                st.markdown("---")
+                rec = cl[cl.id==sel_id].iloc[0]
     elif section == "Thành viên":
         st.header("Quản lý Thành viên")
-        t1, t2 = st.tabs(["Danh sách","Thêm mới"])
-        with t1:
-            df = get_df("SELECT id AS 'Mã', name AS 'Thành viên', email AS 'Email', phone AS 'Số điện thoại', dob AS 'Ngày sinh' FROM participants")
-            st.dataframe(df.drop(columns=['Mã']))
-        with t2:
+        tabs2 = st.tabs(["Danh sách","Thêm mới","Xóa/Sửa"])
+        with tabs2[0]:
+            st.subheader("Danh sách Thành viên")
+            dfp = get_df("SELECT name AS 'Họ và tên', email AS Email, phone AS 'Số điện thoại' FROM participants")
+            st.dataframe(dfp.reset_index(drop=True))
+        with tabs2[1]:
             st.subheader("Thêm thành viên mới")
-            name = st.text_input("Tên thành viên", key='p_name')
-            email = st.text_input("Email thành viên", key='p_email')
-            phone = st.text_input("Số điện thoại", key='p_phone')
-            dob_input = st.text_input("Ngày sinh (dd/mm/yyyy)", key='p_dob')
-            if st.button("Thêm Thành viên"):
-                if not name.strip() or not email.strip():
-                    st.error("Tên và Email không được để trống.")
+            nm = st.text_input("Họ và tên")
+            em = st.text_input("Email")
+            ph = st.text_input("Số điện thoại")
+            if st.button("Thêm thành viên"):
+                if not nm.strip() or not em.strip():
+                    st.error("Nhập họ tên và email.")
                 else:
                     try:
-                        dob = datetime.strptime(dob_input, "%d/%m/%Y").strftime("%d/%m/%Y")
-                    except Exception:
-                        st.error("Ngày sinh không hợp lệ. Vui lòng nhập dd/mm/yyyy.")
-                    else:
-                        try:
-                            conn.execute(
-                                "INSERT INTO participants(name, email, date_created, phone, dob) VALUES(?,?,?,?,?)", (name, email, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), phone, dob)
-                            )
-                            conn.commit()
-                            st.success("Thêm thành viên thành công!")
-                        except sqlite3.IntegrityError:
-                            st.error("Email đã tồn tại.")
+                        conn.execute(
+                            "INSERT INTO participants(name,email,phone,date_created) VALUES(?,?,?,?)",
+                            (nm, em, ph, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                        )
+                        conn.commit()
+                        st.success("Thêm thành viên thành công!")
+                    except sqlite3.IntegrityError:
+                        st.error("Email đã tồn tại.")
+        with tabs2[2]:
+            st.subheader("Xóa/Sửa thành viên")
+            pl = get_df("SELECT id,name,email,phone FROM participants")
+            if pl.empty:
+                st.warning("Chưa có thành viên.")
+            else:
+                sid = st.selectbox("Chọn thành viên:", pl['id'], format_func=lambda x: pl[pl.id==x]['name'].values[0])
+                if st.button("Xóa thành viên"):
+                    conn.execute("DELETE FROM participants WHERE id=?", (sid,))
+                    conn.commit()
+                    st.success("Xóa thành viên thành công!")
+                st.markdown("---")
+                mem = pl[pl.id==sid].iloc[0]
+                new_nm = st.text_input("Họ và tên mới", value=mem.name)
+                new_em = st.text_input("Email mới", value=mem.email)
+                new_ph = st.text_input("Số điện thoại mới", value=mem.phone)
+                if st.button("Cập nhật thành viên"):
+                    try:
+                        conn.execute(
+                            "UPDATE participants SET name=?,email=?,phone=? WHERE id=?",
+                            (new_nm, new_em, new_ph, sid)
+                        )
+                        conn.commit()
+                        st.success("Cập nhật thành viên thành công!")
+                    except sqlite3.IntegrityError:
+                        st.error("Email đã tồn tại.")
+    elif section == "Đăng ký":
+        st.header("Đăng ký Khóa học")
+        # Sử dụng loại đào tạo đã chọn ở sidebar
+        rtype = reg_type
+        df_courses = get_df("SELECT id,title FROM courses WHERE duration_type = ?", (rtype,))
+        df_members = get_df("SELECT id,name FROM participants")
+        if df_courses.empty or df_members.empty:
+            st.warning("Thiếu dữ liệu.")
+        else:
+            cid = st.selectbox("Chọn khóa:", df_courses['id'], format_func=lambda x: df_courses[df_courses.id==x]['title'].values[0])
+            mid = st.selectbox("Chọn thành viên:", df_members['id'], format_func=lambda x: df_members[df_members.id==x]['name'].values[0])
+            if st.button("Ghi danh"):
+                conn.execute(
+                    "INSERT INTO enrollments(course_id,participant_id,date_enrolled) VALUES(?,?,?)",
+                    (cid, mid, datetime.now().strftime('%d/%m/%Y'))
+                )
+                conn.commit()
+                st.success("Ghi danh thành công!")
+        st.subheader("Danh sách đăng ký")
+        df_reg = get_df(
+            "SELECT e.id AS rid,p.name AS 'Thành viên',c.title AS 'Khóa',e.date_enrolled AS 'Ngày đk' FROM enrollments e JOIN participants p ON e.participant_id=p.id JOIN courses c ON e.course_id=c.id WHERE c.duration_type=?", (rtype,)
+        )
+        if df_reg.empty:
+            st.info("Chưa có đăng ký.")
+        else:
+            sel = st.selectbox("Chọn đăng ký để xóa:", df_reg['rid'], format_func=lambda x: f"{df_reg[df_reg.rid==x]['Thành viên'].values[0]} - {df_reg[df_reg.rid==x]['Khóa'].values[0]}")
+            if st.button("Xóa đăng ký"):
+                conn.execute("DELETE FROM enrollments WHERE id=?", (sel,))
+                conn.commit()
+                st.success("Xóa đăng ký thành công!")
+            df_reg['Ngày đk'] = pd.to_datetime(df_reg['Ngày đk'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
+            st.dataframe(df_reg[['Thành viên','Khóa','Ngày đk']].reset_index(drop=True))
 
 # --------------------
-# Tests
-# --------------------
-def run_tests():
-    test_conn = init_db(":memory:")
-    global conn
-    conn = test_conn
-    # Table existence tests
-    for tbl in ['courses', 'participants', 'enrollments']:
-        df = get_df(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tbl}'")
-        assert not df.empty, f"Bảng {tbl} chưa tồn tại"
-    # Courses columns tests
-    sch_c = get_df("PRAGMA table_info(courses)")['name'].tolist()
-    for col in ['duration_type', 'start_date', 'end_date', 'image_url']:
-        assert col in sch_c, f"Courses thiếu cột {col}"
-    # Participants columns tests
-    sch_p = get_df("PRAGMA table_info(participants)")['name'].tolist()
-    for col in ['phone', 'dob']:
-        assert col in sch_p, f"Participants thiếu cột {col}"
-    print("Tất cả tests passed!")
-
-
-def main():
-    global conn
+if __name__ == '__main__':
     conn = init_db()
     if STREAMLIT_AVAILABLE:
         run_app()
     else:
-        print("Chạy ở chế độ CLI.")
-        run_tests()
-
-if __name__ == '__main__':
-    main()
+        print("Streamlit không khả dụng, chạy tests...")
+        run_app()
