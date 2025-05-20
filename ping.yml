@@ -1,0 +1,15 @@
+name: Keep Streamlit Awake
+
+# Chạy theo lịch cron: mỗi 15 phút
+on:
+  schedule:
+    - cron: '*/15 * * * *'  
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          echo "Pinging Streamlit app..."
+          curl -fsS https://gscbquanlydaotao.streamlit.app/ || echo "Ping failed but continue"
