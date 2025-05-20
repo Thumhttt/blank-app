@@ -12,6 +12,7 @@ jobs:
       - name: Ping Streamlit App
         run: |
           echo "Pinging Streamlit app (follow redirect)…"
+          # Dùng -L để follow redirect, gọi trực tiếp vào file entrypoint
           curl -fsSL https://share.streamlit.io/thumhttt/blank-app/main/streamlit_app.py \
             > /dev/null \
             || echo "Ping failed but continue"
