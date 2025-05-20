@@ -33,18 +33,20 @@ def init_db(db_path='training.db'):
         )
         """
     )
-    # Add missing columns to courses
+    # Ensure course columns
     c.execute("PRAGMA table_info(courses)")
-    existing = [col[1] for col in c.fetchall()]
-    for column, ddl in [
-        ('duration_type', "ALTER TABLE courses ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Dài hạn'"),
-        ('start_date',    "ALTER TABLE courses ADD COLUMN start_date TEXT"),
-        ('end_date',      "ALTER TABLE courses ADD COLUMN end_date TEXT"),
-        ('image_url',     "ALTER TABLE courses ADD COLUMN image_url TEXT"),
-        ('ref_url',       "ALTER TABLE courses ADD COLUMN ref_url TEXT"),
-    ]:
-        if column not in existing:
+    existing = {col[1] for col in c.fetchall()}
+    migrations = {
+        'duration_type': "ALTER TABLE courses ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Dài hạn'",
+        'start_date':    "ALTER TABLE courses ADD COLUMN start_date TEXT",
+        'end_date':      "ALTER TABLE courses ADD COLUMN end_date TEXT",
+        'image_url':     "ALTER TABLE courses ADD COLUMN image_url TEXT",
+        'ref_url':       "ALTER TABLE courses ADD COLUMN ref_url TEXT",
+    }
+    for col, ddl in migrations.items():
+        if col not in existing:
             c.execute(ddl)
+
     # Participants table
     c.execute(
         """
@@ -58,9 +60,10 @@ def init_db(db_path='training.db'):
         """
     )
     c.execute("PRAGMA table_info(participants)")
-    existing = [col[1] for col in c.fetchall()]
-    if 'phone' not in existing:
+    parts_cols = {col[1] for col in c.fetchall()}
+    if 'phone' not in parts_cols:
         c.execute("ALTER TABLE participants ADD COLUMN phone TEXT")
+
     # Enrollments table
     c.execute(
         """
@@ -125,9 +128,9 @@ def run_app():
 
         total_c = conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0]
         total_p = conn.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
-        col1, col2 = st.columns(2)
-        col1.metric("Khóa học", total_c)
-        col2.metric("Thành viên", total_p)
+        c1, c2 = st.columns(2)
+        c1.metric("Khóa học", total_c)
+        c2.metric("Thành viên", total_p)
 
         df_ct = get_df("SELECT duration_type AS Loại, COUNT(*) AS Số_khóa FROM courses GROUP BY duration_type")
         if not df_ct.empty:
@@ -163,10 +166,17 @@ def run_app():
                 c2.write(r['description'] or "_Không có mô tả_")
                 if r['ref_url']:
                     c2.markdown(f"[Tài liệu tham khảo]({r['ref_url']})")
+                # Hiển thị thành viên đăng ký với tiêu đề Họ và tên
                 df_en = get_df(
-                    "SELECT p.name FROM enrollments e JOIN participants p ON e.participant_id = p.id WHERE e.course_id = ?", (r['id'],)
+                    """
+                    SELECT p.name AS "Họ và tên", p.email AS "Email"
+                    FROM enrollments e
+                    JOIN participants p ON e.participant_id = p.id
+                    WHERE e.course_id = ?
+                    """, (r['id'],)
                 )
-                c2.markdown("**Đã đăng ký:** " + (", ".join(df_en['name']) if not df_en.empty else "_Chưa có_"))
+                c2.markdown("**Đã đăng ký:**")
+                c2.dataframe(df_en)
 
     # Thông tin Khóa học
     elif section == "Thông tin Khóa học":
@@ -195,7 +205,12 @@ def run_app():
             if r['Tài_liệu']:
                 c2.markdown(f"[Tài liệu tham khảo]({r['Tài_liệu']})")
             df_en = get_df(
-                "SELECT p.name, p.email FROM enrollments e JOIN participants p ON e.participant_id = p.id WHERE e.course_id = ?", (r['cid'],)
+                """
+                SELECT p.name AS "Họ và tên", p.email AS "Email"
+                FROM enrollments e
+                JOIN participants p ON e.participant_id = p.id
+                WHERE e.course_id = ?
+                """, (r['cid'],)
             )
             c2.markdown("**Đã đăng ký:**")
             c2.dataframe(df_en.reset_index(drop=True))
@@ -272,7 +287,7 @@ def run_app():
             if st.button("Thêm"): 
                 if not nm or not em: st.error("Họ tên và email không được để trống.")
                 else:
-                    try: conn.execute("INSERT INTO participants(name,email,phone,date_created) VALUES(?,?,?,?)",(nm,em,ph,datetime.now().strftime('%Y-%m-%d %H:%M:%S')));conn.commit();st.success("Thêm thành công!")
+                    try: conn.execute("INSERT INTO participants(Họ_và_tên,Email,Số_điện_thoại,date_created) VALUES(?,?,?,?)",(nm,em,ph,datetime.now().strftime('%Y-%m-%d %H:%M:%S')));conn.commit();st.success("Thêm thành công!")
                     except sqlite3.IntegrityError: st.error("Email đã tồn tại.")
         with tabs2[2]:
             st.subheader("Xóa/Sửa Thành viên")
@@ -287,7 +302,7 @@ def run_app():
                 em2 = st.text_input("Email mới", mem.email)
                 ph2 = st.text_input("Số điện thoại mới", mem.phone)
                 if st.button("Cập nhật"): 
-                    try: conn.execute("UPDATE participants SET name=?,email=?,phone=? WHERE id=?",(nm2,em2,ph2,sid));conn.commit();st.success("Cập nhật thành công!")
+                    try: conn.execute("UPDATE participants SET Họ_và_tên=?,Email=?,Số_điện_thoại=? WHERE id=?",(nm2,em2,ph2,sid));conn.commit();st.success("Cập nhật thành công!")
                     except sqlite3.IntegrityError: st.error("Email đã tồn tại.")
 
     # Đăng ký
