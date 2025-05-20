@@ -1,9 +1,9 @@
 name: Keep Streamlit Awake
 
-# Chạy theo lịch cron: mỗi 15 phút
 on:
   schedule:
-    - cron: '*/15 * * * *'  
+    - cron: '*/15 * * * *'    # mỗi 15 phút theo UTC
+  workflow_dispatch:         # cho phép chạy thủ công
 
 jobs:
   ping:
@@ -11,5 +11,7 @@ jobs:
     steps:
       - name: Ping Streamlit App
         run: |
-          echo "Pinging Streamlit app..."
-          curl -fsS https://gscbquanlydaotao.streamlit.app/ || echo "Ping failed but continue"
+          echo "Pinging Streamlit app (follow redirect)…"
+          curl -fsSL https://share.streamlit.io/thumhttt/blank-app/main/streamlit_app.py \
+            > /dev/null \
+            || echo "Ping failed but continue"
