@@ -1,0 +1,19 @@
+project:
+  type: book
+
+book:
+  title: "R_exercise"
+  author: "Khoa GSCB"
+  date: "19/5/2025"
+  chapters:
+    - index.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: false
+  pdf:
+    documentclass: scrreprt
+
+editor: visual
+
