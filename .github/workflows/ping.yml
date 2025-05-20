@@ -12,4 +12,4 @@ jobs:
       - name: Ping Streamlit App
         run: |
           echo "Pinging Streamlit app..."
-          curl -fsS https://YOUR-APP-NAME.streamlit.app/ || echo "Ping failed but continue"
+          curl -fsS https://gscbquanlydaotao.streamlit.app/ || echo "Ping failed but continue"
